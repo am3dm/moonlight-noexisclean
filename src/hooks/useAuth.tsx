@@ -1,29 +1,20 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 
-type AppRole = 'admin' | 'sales' | 'accountant' | 'warehouse';
-
-interface Profile {
-  user_id: string;
-  full_name?: string | null;
-  role?: string | null;
-  is_active?: boolean;
-  created_at?: string;
-  updated_at?: string;
+// Define simplified user types
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
-  profile: Profile | null;
-  roles: AppRole[];
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signIn: (identifier: string, password: string) => Promise<{ error: Error | null }>;
-  signOut: () => Promise<void>;
-  hasRole: (role: AppRole) => boolean;
+  signOut: () => void;
   isAdmin: () => boolean;
 }
 
@@ -31,165 +22,63 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    }
-  };
-
-  const fetchRoles = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId);
-
-      if (error) throw error;
-      setRoles((data || []).map((r) => r.role as AppRole));
-    } catch (error) {
-      console.error('Error fetching roles:', error);
-    }
-  };
-
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Small delay to ensure DB triggers might have run if it's a new user
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-            fetchRoles(session.user.id);
-          }, 0);
-        } else {
-          setProfile(null);
-          setRoles([]);
-        }
-        setLoading(false);
+    // Check for existing token and user data on load
+    const token = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
+    
+    if (token && storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Error parsing stored user", e);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
       }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        fetchRoles(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    }
+    setLoading(false);
   }, []);
 
-  const signUp = async (_email: string, _password: string, _fullName: string) => {
-    // In production, you might want to enable this or keep it disabled if it's an invite-only system.
-    toast.error('إنشاء الحسابات معطل. يرجى التواصل مع المسؤول.');
-    return { error: new Error('signup disabled') };
-  };
-
   const signIn = async (identifier: string, password: string) => {
-    // DEV ONLY: LocalAuth fallback for testing without Supabase connection
-    if (import.meta.env.DEV) {
-      const presetUsers = [
-        { username: 'admin', password: 'admin123', role: 'admin' as AppRole },
-        { username: 'cashier', password: 'cashier123', role: 'sales' as AppRole },
-        { username: 'activator', password: 'activator123', role: 'warehouse' as AppRole },
-      ];
-
-      const matched = presetUsers.find(u => u.username === identifier);
-      if (matched && matched.password === password) {
-        // Create a local in-memory session stand-in
-        setUser({
-          id: `local-${matched.username}`,
-          app_metadata: {},
-          user_metadata: { full_name: matched.username },
-          aud: 'authenticated',
-          created_at: new Date().toISOString(),
-          email: undefined,
-          phone: undefined,
-          role: 'authenticated',
-          identities: [],
-          last_sign_in_at: new Date().toISOString(),
-          confirmed_at: new Date().toISOString(),
-          email_confirmed_at: new Date().toISOString(),
-          phone_confirmed_at: new Date().toISOString(),
-          factors: [],
-        } as unknown as User);
-        setSession(null);
-        setProfile({
-          user_id: `local-${matched.username}`,
-          full_name: matched.username,
-          role: matched.role,
-          is_active: true,
-        });
-        setRoles([matched.role]);
-        toast.success('تم تسجيل الدخول (وضع المطور)');
-        return { error: null };
-      }
-    }
-
-    // Production: Only Supabase Auth
     try {
-      // Allow sign in with email
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data } = await api.post('/auth/login', {
         email: identifier,
         password,
       });
-      if (error) {
-        toast.error(error.message.includes('Invalid login credentials') ? 'بيانات الدخول غير صحيحة' : error.message);
-        return { error };
-      }
+
+      const { token, user } = data;
+      
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      setUser(user);
+      
       toast.success('تم تسجيل الدخول بنجاح!');
       return { error: null };
-    } catch (error) {
+    } catch (error: any) {
         console.error("Login error:", error);
-        toast.error('حدث خطأ غير متوقع أثناء تسجيل الدخول');
-        return { error: error as Error };
+        const errorMessage = error.response?.data?.error || 'حدث خطأ أثناء تسجيل الدخول';
+        toast.error(errorMessage);
+        return { error: new Error(errorMessage) };
     }
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
-    setSession(null);
-    setProfile(null);
-    setRoles([]);
     toast.success('تم تسجيل الخروج');
   };
 
-  const hasRole = (role: AppRole) => roles.includes(role);
-  const isAdmin = () => roles.includes('admin');
+  const isAdmin = () => user?.role === 'admin';
 
   return (
     <AuthContext.Provider value={{
       user,
-      session,
-      profile,
-      roles,
       loading,
-      signUp,
       signIn,
       signOut,
-      hasRole,
       isAdmin,
     }}>
       {children}

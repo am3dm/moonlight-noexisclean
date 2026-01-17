@@ -1,33 +1,38 @@
 import { useState } from 'react';
-import { Plus, Search, Edit, Trash2, Package, Filter, Star, TrendingUp } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, Filter, TrendingUp } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { formatCurrency } from '@/lib/utils';
 import { Product } from '@/types';
 import { ProductModal } from '../modals/ProductModal';
+import { useProducts, useDeleteProduct, useCategories } from '@/hooks/useDatabase';
 
 export const Products = () => {
-  const { products, categories, deleteProduct, settings } = useStore();
+  const { settings } = useStore();
+  const { data: productsData } = useProducts();
+  const { data: categoriesData } = useCategories();
+  const { mutate: deleteProduct } = useDeleteProduct();
+
+  // Adapting to match local Product type if necessary, or just use DB type
+  const products = productsData || [];
+  const categories = categoriesData || [];
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] = useState<any | null>(null); // Use Any to avoid strict type mismatch for now
 
-  const filteredProducts = products.filter((product) => {
+  const filteredProducts = products.filter((product: any) => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          product.sku.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = !selectedCategory || product.categoryId === selectedCategory;
+                          (product.barcode && product.barcode.includes(searchQuery)); // Use barcode instead of SKU if SKU missing
+    const matchesCategory = !selectedCategory || product.category_id === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
   const getCategoryName = (categoryId: string) => {
-    return categories.find(c => c.id === categoryId)?.name || 'غير محدد';
+    return categories.find((c: any) => c.id === categoryId)?.name || 'غير محدد';
   };
 
-  const getCategoryColor = (categoryId: string) => {
-    return categories.find(c => c.id === categoryId)?.color || '#3B82F6';
-  };
-
-  const handleEdit = (product: Product) => {
+  const handleEdit = (product: any) => {
     setEditingProduct(product);
     setIsModalOpen(true);
   };
@@ -43,7 +48,7 @@ export const Products = () => {
     setEditingProduct(null);
   };
 
-  const isLowStock = (product: Product) => product.quantity <= product.minQuantity;
+  const isLowStock = (product: any) => product.stock_quantity <= product.min_stock_level;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -70,7 +75,7 @@ export const Products = () => {
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
             <input
               type="text"
-              placeholder="ابحث عن منتج باسم أو SKU..."
+              placeholder="ابحث عن منتج باسم أو باركود..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="input-field pr-10 w-full"
@@ -85,7 +90,7 @@ export const Products = () => {
               className="input-field pr-10 w-full appearance-none"
             >
               <option value="">جميع التصنيفات</option>
-              {categories.map((category) => (
+              {categories.map((category: any) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
@@ -113,7 +118,7 @@ export const Products = () => {
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        {filteredProducts.map((product, index) => (
+        {filteredProducts.map((product: any, index: number) => (
           <div 
             key={product.id} 
             className="glass-card rounded-2xl overflow-hidden hover-lift group animate-slide-up"
@@ -121,18 +126,17 @@ export const Products = () => {
           >
             {/* Image Area */}
             <div className="aspect-square bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center relative overflow-hidden">
-              {product.image ? (
-                <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+              {product.image_url ? (
+                <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
               ) : (
                 <Package className="text-muted-foreground group-hover:text-primary transition-colors" size={48} />
               )}
               
               {/* Category Badge */}
               <div 
-                className="absolute top-3 right-3 px-3 py-1 rounded-lg text-xs font-bold text-white shadow-lg"
-                style={{ backgroundColor: getCategoryColor(product.categoryId) }}
+                className="absolute top-3 right-3 px-3 py-1 rounded-lg text-xs font-bold text-white shadow-lg bg-primary"
               >
-                {getCategoryName(product.categoryId)}
+                {getCategoryName(product.category_id)}
               </div>
 
               {/* Low Stock Badge */}
@@ -165,7 +169,7 @@ export const Products = () => {
             <div className="p-5 space-y-3">
               <div>
                 <h3 className="font-bold text-lg line-clamp-2 group-hover:text-primary transition-colors">{product.name}</h3>
-                <p className="text-xs text-muted-foreground">SKU: {product.sku}</p>
+                <p className="text-xs text-muted-foreground">باركد: {product.barcode || '-'}</p>
               </div>
 
               {/* Price & Stock */}
@@ -178,14 +182,8 @@ export const Products = () => {
                     ? 'bg-destructive/10 text-destructive' 
                     : 'bg-success/10 text-success'
                 }`}>
-                  {product.quantity} {product.unit}
+                  {product.stock_quantity} قطعة
                 </div>
-              </div>
-
-              {/* Rating indicator */}
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <TrendingUp size={14} className="text-accent" />
-                <span>مجموع المبيعات</span>
               </div>
             </div>
           </div>

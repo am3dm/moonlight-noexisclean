@@ -1,19 +1,25 @@
 import { useState } from 'react';
 import { Plus, Edit, Trash2, Tag, Package, Grid3x3 } from 'lucide-react';
-import { useStore } from '@/store/useStore';
+import { useCategories, useProducts, useDeleteCategory } from '@/hooks/useDatabase';
 import { Category } from '@/types';
 import { CategoryModal } from '../modals/CategoryModal';
 
 export const Categories = () => {
-  const { categories, products, deleteCategory } = useStore();
+  const { data: categoriesData } = useCategories();
+  const { data: productsData } = useProducts();
+  const { mutate: deleteCategory } = useDeleteCategory();
+
+  const categories = categoriesData || [];
+  const products = productsData || [];
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingCategory, setEditingCategory] = useState<any | null>(null);
 
   const getProductCount = (categoryId: string) => {
-    return products.filter(p => p.categoryId === categoryId).length;
+    return products.filter((p: any) => p.category_id === categoryId).length;
   };
 
-  const handleEdit = (category: Category) => {
+  const handleEdit = (category: any) => {
     setEditingCategory(category);
     setIsModalOpen(true);
   };
@@ -79,8 +85,11 @@ export const Categories = () => {
 
       {/* Categories Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        {categories.map((category, index) => {
+        {categories.map((category: any, index: number) => {
           const productCount = getProductCount(category.id);
+          // Default color if missing
+          const catColor = category.color || '#3B82F6';
+          
           return (
             <div 
               key={category.id} 
@@ -92,11 +101,11 @@ export const Categories = () => {
                 <div 
                   className="w-14 h-14 rounded-xl flex items-center justify-center shadow-lg"
                   style={{ 
-                    backgroundColor: `${category.color}20`,
-                    borderLeft: `4px solid ${category.color}`
+                    backgroundColor: `${catColor}20`,
+                    borderLeft: `4px solid ${catColor}`
                   }}
                 >
-                  <Tag style={{ color: category.color }} size={28} />
+                  <Tag style={{ color: catColor }} size={28} />
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
@@ -131,7 +140,7 @@ export const Categories = () => {
                 </div>
                 <div 
                   className="w-6 h-6 rounded-full border-2 border-white/20 shadow-lg"
-                  style={{ backgroundColor: category.color }}
+                  style={{ backgroundColor: catColor }}
                 />
               </div>
             </div>

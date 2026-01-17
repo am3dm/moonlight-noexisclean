@@ -1,244 +1,157 @@
 import { useState } from 'react';
+import { Plus, Search, Edit, Trash2, Truck, Phone, MapPin, Mail, Package } from 'lucide-react';
+import { useSuppliers, useDeleteSupplier } from '@/hooks/useDatabase';
 import { useStore } from '@/store/useStore';
-import { formatCurrency } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label'; // Fixed: Import Label
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Search, CreditCard, Wallet, Truck, Plus, Trash2, Edit } from 'lucide-react';
-import { toast } from 'sonner';
+import { SupplierModal } from '../modals/SupplierModal';
 
 export const Suppliers = () => {
-  const { suppliers, addSupplier, updateSupplier, deleteSupplier, addPayment, settings, logAction } = useStore();
+  const { data: suppliersData } = useSuppliers();
+  const { mutate: deleteSupplier } = useDeleteSupplier();
   
+  const suppliers = suppliersData || [];
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<any>(null);
-  const [selectedSupplier, setSelectedSupplier] = useState<any>(null);
-  const [paymentAmount, setPaymentAmount] = useState('');
-  
-  // Form State
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', address: '' });
+  const [editingSupplier, setEditingSupplier] = useState<any | null>(null);
 
-  const filteredSuppliers = suppliers.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    s.phone?.includes(searchQuery)
+  const filteredSuppliers = suppliers.filter((supplier: any) =>
+    supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (supplier.phone && supplier.phone.includes(searchQuery))
   );
 
-  const totalDebt = suppliers.reduce((sum, s) => sum + s.balance, 0);
-
-  const handleOpenModal = (supplier?: any) => {
-    if (supplier) {
-      setEditingSupplier(supplier);
-      setFormData({ name: supplier.name, phone: supplier.phone || '', email: supplier.email || '', address: supplier.address || '' });
-    } else {
-      setEditingSupplier(null);
-      setFormData({ name: '', phone: '', email: '', address: '' });
-    }
+  const handleEdit = (supplier: any) => {
+    setEditingSupplier(supplier);
     setIsModalOpen(true);
-  };
-
-  const handleSaveSupplier = () => {
-    if (!formData.name) {
-      toast.error('اسم المورد مطلوب');
-      return;
-    }
-    if (editingSupplier) {
-      updateSupplier(editingSupplier.id, formData);
-      toast.success('تم تحديث بيانات المورد');
-    } else {
-      addSupplier(formData);
-      toast.success('تم إضافة المورد بنجاح');
-    }
-    setIsModalOpen(false);
   };
 
   const handleDelete = (id: string) => {
     if (confirm('هل أنت متأكد من حذف هذا المورد؟')) {
       deleteSupplier(id);
-      toast.success('تم حذف المورد');
     }
   };
 
-  const handleOpenPayment = (supplier: any) => {
-    setSelectedSupplier(supplier);
-    setPaymentAmount('');
-    setIsPaymentModalOpen(true);
-  };
-
-  const handleSubmitPayment = () => {
-    const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
-      toast.error('يرجى إدخال مبلغ صحيح');
-      return;
-    }
-    if (amount > selectedSupplier.balance) {
-      toast.error('المبلغ أكبر من المستحق للمورد');
-      return;
-    }
-
-    // Process Payment (Reduce Supplier Balance)
-    const newBalance = selectedSupplier.balance - amount;
-    updateSupplier(selectedSupplier.id, { balance: newBalance });
-    
-    // Log Action
-    logAction({
-      userId: 'current-user',
-      actionType: 'UPDATE',
-      entity: 'Supplier',
-      entityId: selectedSupplier.id,
-      details: `Payment to Supplier: ${amount} - Remaining: ${newBalance}`
-    });
-
-    toast.success('تم تسجيل الدفعة للمورد بنجاح');
-    setIsPaymentModalOpen(false);
+  const handleModalClose = () => {
+    setIsModalOpen(false);
+    setEditingSupplier(null);
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-8 animate-fade-in">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="page-title">الموردين</h1>
-          <p className="text-muted-foreground">إدارة الموردين والديون المستحقة لهم</p>
+          <p className="text-muted-foreground text-lg">إدارة بيانات الموردين وشركات التوزيع</p>
         </div>
-        <Button onClick={() => handleOpenModal()} className="gap-2">
-          <Plus size={20} /> إضافة مورد
-        </Button>
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="btn-primary gap-2"
+        >
+          <Plus size={20} />
+          إضافة مورد جديد
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="bg-destructive/5 border-destructive/20">
-          <CardContent className="p-6 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">إجمالي الديون للموردين</p>
-              <h3 className="text-2xl font-bold text-destructive">{formatCurrency(totalDebt, settings.currency)}</h3>
-            </div>
-            <Wallet className="h-8 w-8 text-destructive opacity-50" />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex gap-4">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search */}
+      <div className="glass-card p-6">
+        <div className="relative max-w-md">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-          <Input 
-            placeholder="بحث عن مورد..." 
+          <input
+            type="text"
+            placeholder="بحث عن مورد بالاسم أو رقم الهاتف..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pr-10"
+            className="input-field pr-10 w-full"
           />
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>المورد</TableHead>
-                <TableHead>الهاتف</TableHead>
-                <TableHead>إجمالي المشتريات</TableHead>
-                <TableHead>الدين المستحق</TableHead>
-                <TableHead>الإجراءات</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredSuppliers.length > 0 ? (
-                filteredSuppliers.map((supplier) => (
-                  <TableRow key={supplier.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-muted-foreground" />
-                        {supplier.name}
-                      </div>
-                    </TableCell>
-                    <TableCell>{supplier.phone || '-'}</TableCell>
-                    <TableCell>{formatCurrency(supplier.totalPurchases, settings.currency)}</TableCell>
-                    <TableCell>
-                      <span className={supplier.balance > 0 ? "font-bold text-destructive" : "text-success"}>
-                        {formatCurrency(supplier.balance, settings.currency)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => handleOpenModal(supplier)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {supplier.balance > 0 && (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="gap-2 text-xs h-8 border-destructive/20 text-destructive hover:bg-destructive/10"
-                            onClick={() => handleOpenPayment(supplier)}
-                          >
-                            <CreditCard size={14} />
-                            سداد
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(supplier.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    لا يوجد موردين
-                  </TableCell>
-                </TableRow>
+      {/* Suppliers Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        {filteredSuppliers.map((supplier: any, index: number) => (
+          <div 
+            key={supplier.id} 
+            className="glass-card rounded-2xl p-6 hover-lift group animate-slide-up"
+            style={{ animationDelay: `${index * 0.05}s` }}
+          >
+            {/* Header with Icon */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center text-accent shadow-lg">
+                <Truck size={28} />
+              </div>
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={() => handleEdit(supplier)}
+                  className="p-2 bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors text-primary"
+                >
+                  <Edit size={16} />
+                </button>
+                <button 
+                  onClick={() => handleDelete(supplier.id)}
+                  className="p-2 bg-destructive/10 hover:bg-destructive/20 rounded-lg transition-colors text-destructive"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Info */}
+            <h3 className="font-bold text-lg mb-1 group-hover:text-primary transition-colors">{supplier.name}</h3>
+            {supplier.contact_person && (
+                <p className="text-sm text-muted-foreground mb-3">مسؤول التواصل: {supplier.contact_person}</p>
+            )}
+            
+            <div className="space-y-2 mt-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Phone size={14} className="text-primary/70" />
+                <span dir="ltr">{supplier.phone || 'لا يوجد رقم'}</span>
+              </div>
+              {supplier.email && (
+                <div className="flex items-center gap-2">
+                  <Mail size={14} className="text-primary/70" />
+                  <span>{supplier.email}</span>
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              {supplier.address && (
+                <div className="flex items-center gap-2">
+                  <MapPin size={14} className="text-primary/70" />
+                  <span>{supplier.address}</span>
+                </div>
+              )}
+            </div>
 
-      {/* Add/Edit Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editingSupplier ? 'تعديل المورد' : 'إضافة مورد جديد'}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>اسم المورد *</Label>
-              <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+            {/* Footer */}
+            <div className="mt-6 pt-4 border-t border-border/50 flex justify-between items-center text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                    <Package size={12}/> توريد منتجات
+                </span>
+                {/* Could add total supplied value here later */}
             </div>
-            <div className="space-y-2">
-              <Label>رقم الهاتف</Label>
-              <Input value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <Label>العنوان</Label>
-              <Input value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} />
-            </div>
-            <Button onClick={handleSaveSupplier} className="w-full">حفظ</Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        ))}
+      </div>
 
-      {/* Payment Modal */}
-      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>سداد دفعة للمورد: {selectedSupplier?.name}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="p-4 bg-destructive/10 rounded-lg flex justify-between items-center text-destructive">
-              <span>المستحق:</span>
-              <span className="font-bold text-lg">{selectedSupplier && formatCurrency(selectedSupplier.balance, settings.currency)}</span>
-            </div>
-            <div className="space-y-2">
-              <Label>المبلغ المدفوع</Label>
-              <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" />
-            </div>
-            <Button onClick={handleSubmitPayment} className="w-full gap-2">
-              <CreditCard size={18} />
-              تسجيل السداد
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Empty State */}
+      {suppliers.length === 0 && (
+        <div className="text-center py-16">
+          <Truck className="mx-auto text-muted-foreground/30 mb-4" size={80} />
+          <p className="text-xl text-muted-foreground font-medium">لا يوجد موردين</p>
+          <p className="text-sm text-muted-foreground mt-2">قم بإضافة بيانات الموردين لتسهيل عمليات الشراء</p>
+        </div>
+      )}
+
+      {/* Modal */}
+      {isModalOpen && (
+        <SupplierModal 
+          supplier={editingSupplier} 
+          onClose={handleModalClose} 
+        />
+      )}
+      
+      {/* Developer Footer */}
+      <div className="mt-8 p-4 bg-card/50 rounded-xl border border-border text-center text-xs text-muted-foreground">
+        <p><span className="font-semibold">Moonlight Noexis</span> © 2025 | تطوير: المهندس عدنان مرسال | <span className="text-primary font-mono">07901854868</span></p>
+      </div>
     </div>
   );
 };

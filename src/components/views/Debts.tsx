@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useStore } from '@/store/useStore';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -9,11 +9,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Search, CreditCard, Wallet, CheckCircle, Printer, Eye, ArrowLeft, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { PaymentReceipt } from '@/components/PaymentReceipt';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { useCustomerStatement, useCreatePayment, useCustomers } from '@/hooks/useDatabase';
 
 export const Debts = () => {
-  const { customers, addPayment, settings } = useStore(); 
+  const { settings } = useStore(); // Keep useStore for local settings if needed, but better use hook
+  const { data: customers } = useCustomers();
+  const { mutate: createPayment } = useCreatePayment();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<any>(null);
   const [selectedCustomerForStatement, setSelectedCustomerForStatement] = useState<any>(null); // For Account Statement
@@ -25,67 +27,15 @@ export const Debts = () => {
   const printRef = useRef<HTMLDivElement>(null);
 
   // --- Data Fetching for Account Statement ---
-  const { data: accountStatement, isLoading: isLoadingStatement } = useQuery({
-    queryKey: ['accountStatement', selectedCustomerForStatement?.id],
-    queryFn: async () => {
-      if (!selectedCustomerForStatement) return [];
-      
-      // 1. Get Invoices (Sales - Debits)
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('id, created_at, invoice_number, total, type, status, remaining')
-        .eq('customer_id', selectedCustomerForStatement.id)
-        .eq('type', 'sale')
-        .order('created_at', { ascending: true });
-
-      // 2. Get Payments (Credits)
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('id, created_at, amount, notes, invoice_id') // invoice_id here might be the reference string
-        .eq('customer_id', selectedCustomerForStatement.id)
-        .order('created_at', { ascending: true });
-
-      // 3. Merge and Sort
-      const movements = [
-        ...(invoices || []).map(i => ({
-          id: i.id,
-          date: new Date(i.created_at),
-          type: 'invoice',
-          reference: i.invoice_number,
-          debit: i.total, // مدين (عليه)
-          credit: 0,      // دائن (له)
-          details: `فاتورة مبيعات #${i.invoice_number}`,
-          notes: i.status === 'pending' ? '(معلقة)' : ''
-        })),
-        ...(payments || []).map(p => ({
-          id: p.id,
-          date: new Date(p.created_at),
-          type: 'payment',
-          reference: p.invoice_id || 'PAY',
-          debit: 0,
-          credit: p.amount,
-          details: p.notes || `دفعة نقدية ${p.invoice_id ? '#' + p.invoice_id : ''}`,
-          notes: ''
-        }))
-      ].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-      // 4. Calculate Running Balance
-      let runningBalance = 0;
-      return movements.map(m => {
-        runningBalance += (m.debit - m.credit);
-        return { ...m, balance: runningBalance };
-      });
-    },
-    enabled: !!selectedCustomerForStatement
-  });
+  const { data: accountStatement, isLoading: isLoadingStatement } = useCustomerStatement(selectedCustomerForStatement?.id);
 
   // Filter customers with debt > 0 or all customers
-  const debtors = customers.filter(c => 
+  const debtors = (customers || []).filter((c: any) => 
     (c.balance !== 0) && // Show anyone with non-zero balance
     (c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone?.includes(searchQuery))
   );
 
-  const totalDebt = debtors.reduce((sum, c) => sum + (c.balance > 0 ? c.balance : 0), 0);
+  const totalDebt = debtors.reduce((sum: number, c: any) => sum + (c.balance > 0 ? c.balance : 0), 0);
 
   const handleOpenPayment = (customer: any) => {
     setSelectedCustomerForPayment(customer);
@@ -106,8 +56,8 @@ export const Debts = () => {
          
          const rows = accountStatement?.map((m: any) => `
             <tr>
-                <td>${formatDate(m.date)}</td>
-                <td>${m.details} ${m.notes}</td>
+                <td>${formatDate(m.created_at)}</td>
+                <td>${m.type === 'invoice' ? 'فاتورة مبيعات' : 'دفعة نقدية'} - ${m.reference || ''} ${m.notes ? '(' + m.notes + ')' : ''}</td>
                 <td>${m.debit > 0 ? formatCurrency(m.debit, settings.currency) : '-'}</td>
                 <td>${m.credit > 0 ? formatCurrency(m.credit, settings.currency) : '-'}</td>
                 <td style="font-weight:bold; direction:ltr;">${formatCurrency(m.balance, settings.currency)}</td>
@@ -237,34 +187,36 @@ export const Debts = () => {
       toast.error('يرجى إدخال مبلغ صحيح');
       return;
     }
+    // We allow partial payments or even advance payments, but warning if > balance is handled by logic?
+    // Here we just warn if > balance
     if (amount > selectedCustomerForPayment.balance) {
-      toast.error('المبلغ المدخل أكبر من قيمة الدين');
-      return;
+      // toast.warning('المبلغ المدخل أكبر من قيمة الدين'); // Optional warning
     }
 
     const oldBalance = selectedCustomerForPayment.balance;
     const newBalance = oldBalance - amount;
 
-    // Process Payment
-    addPayment({
-      customerId: selectedCustomerForPayment.id,
+    // Process Payment via API
+    createPayment({
+      customer_id: selectedCustomerForPayment.id,
       amount: amount,
-      createdBy: 'current-user'
-    });
+      notes: 'دفعة نقدية'
+    }, {
+      onSuccess: () => {
+        // Prepare Receipt Data
+        setLastReceipt({
+          number: `PAY-${Date.now().toString().substr(-6)}`,
+          amount,
+          date: new Date(),
+          customerName: selectedCustomerForPayment.name,
+          oldBalance,
+          newBalance
+        });
 
-    // Prepare Receipt Data
-    setLastReceipt({
-      number: `PAY-${Date.now().toString().substr(-6)}`,
-      amount,
-      date: new Date(),
-      customerName: selectedCustomerForPayment.name,
-      oldBalance,
-      newBalance
+        setIsPaymentModalOpen(false);
+        setShowReceiptDialog(true);
+      }
     });
-
-    toast.success('تم تسجيل الدفعة بنجاح');
-    setIsPaymentModalOpen(false);
-    setShowReceiptDialog(true);
   };
 
   // --- Statement View ---
@@ -306,11 +258,13 @@ export const Debts = () => {
                                   accountStatement?.map((move: any) => (
                                       <TableRow key={move.id} className="hover:bg-muted/5">
                                           <TableCell className="font-medium text-muted-foreground">
-                                              {formatDate(move.date)}
+                                              {formatDate(move.created_at)}
                                           </TableCell>
                                           <TableCell>
                                               <div className="flex flex-col">
-                                                  <span className="font-medium">{move.details}</span>
+                                                  <span className="font-medium">
+                                                    {move.type === 'invoice' ? 'فاتورة مبيعات' : 'دفعة نقدية'} - {move.reference}
+                                                  </span>
                                                   {move.notes && <span className="text-xs text-muted-foreground">{move.notes}</span>}
                                               </div>
                                           </TableCell>
@@ -392,18 +346,16 @@ export const Debts = () => {
               <TableRow>
                 <TableHead>العميل</TableHead>
                 <TableHead>رقم الهاتف</TableHead>
-                <TableHead>إجمالي المشتريات</TableHead>
                 <TableHead>الرصيد الحالي</TableHead>
                 <TableHead className="text-left">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {debtors.length > 0 ? (
-                debtors.map((customer) => (
+                debtors.map((customer: any) => (
                   <TableRow key={customer.id}>
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
-                    <TableCell>{formatCurrency(customer.totalPurchases, settings.currency)}</TableCell>
                     <TableCell>
                       <span className={`font-bold ${customer.balance > 0 ? 'text-destructive' : 'text-emerald-600'}`}>
                         {formatCurrency(customer.balance, settings.currency)}
@@ -438,7 +390,7 @@ export const Debts = () => {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                     <CheckCircle className="mx-auto h-8 w-8 mb-2 text-emerald-500/50" />
                     لا توجد بيانات مطابقة للبحث
                   </TableCell>

@@ -1,181 +1,58 @@
 version: '3.8'
 
 services:
-  # ----------------------------------------------------------------------------------
-  # Frontend Application (React + Nginx)
-  # ----------------------------------------------------------------------------------
-  app:
-    container_name: moonlight-app
-    build: 
-      context: .
-      args:
-        # POINT TO NGINX PROXY /api
-        VITE_SUPABASE_URL: http://185.225.233.103/api
-        VITE_SUPABASE_ANON_KEY: ${ANON_KEY}
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      - kong
-
-  # ----------------------------------------------------------------------------------
-  # Supabase Services
-  # ----------------------------------------------------------------------------------
-  
+  # Database
   db:
-    container_name: supabase-db
-    image: supabase/postgres:15.1.0.147
+    image: postgres:15-alpine
+    container_name: moonlight-db
     restart: always
-    healthcheck:
-      test: pg_isready -U postgres -h localhost
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    command:
-      - postgres
-      - -c
-      - config_file=/etc/postgresql/postgresql.conf
-      - -c
-      - log_min_messages=fatal
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: moonlight
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/simple_schema.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
-    volumes:
-      - ./volumes/db/data:/var/lib/postgresql/data
-      - ./supabase/migrations:/docker-entrypoint-initdb.d 
+    networks:
+      - moonlight-network
 
-  kong:
-    container_name: supabase-kong
-    image: kong:2.8.1
-    restart: always
-    ports:
-      - "8000:8000"
-      - "8443:8443"
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
-      KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-    volumes:
-      - ./volumes/api/kong.yml:/var/lib/kong/kong.yml
-
-  auth:
-    container_name: supabase-auth
-    image: supabase/gotrue:v2.158.1
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      GOTRUE_API_HOST: 0.0.0.0
-      GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}/auth/v1
-      GOTRUE_DB_DRIVER: postgres
-      # Use postgres user directly to fix connection issues
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      GOTRUE_SITE_URL: ${SITE_URL}
-      GOTRUE_JWT_SECRET: ${JWT_SECRET}
-      GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
-      GOTRUE_MAILER_AUTOCONFIRM: "true"
-      GOTRUE_SMTP_ADMIN_EMAIL: admin@example.com
-      GOTRUE_SMTP_HOST: supabase-mail
-      GOTRUE_SMTP_PORT: 2500
-      GOTRUE_SMTP_USER: fake_mail_user
-      GOTRUE_SMTP_PASS: fake_mail_password
-      GOTRUE_SMTP_SENDER_NAME: fake_sender
-
-  rest:
-    container_name: supabase-rest
-    image: postgrest/postgrest:v12.2.0
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      # Connect as postgres superuser to avoid auth role issues initially
-      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      PGRST_DB_SCHEMAS: public,storage,graphql_public
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      PGRST_DB_USE_LEGACY_GUC_OPTION: "true"
-
-  realtime:
-    container_name: supabase-realtime
-    image: supabase/realtime:v2.30.23
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PORT: 4000
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_USER: supabase_admin
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: postgres
-      DB_SSL: "false"
-      JWT_SECRET: ${JWT_SECRET}
-      REPLICATION_MODE: RLS
-      REPLICATION_POLL_INTERVAL: 100
-      SECURE_CHANNELS: "true"
-      SLOT_NAME: supabase_realtime_rls
-      TEMPORARY_SLOT: "true"
-
-  storage:
-    container_name: supabase-storage
-    image: supabase/storage-api:v1.11.13
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      POSTGREST_URL: http://rest:3000
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
-      FILE_SIZE_LIMIT: 52428800
-      STORAGE_BACKEND: file
-      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
-      TENANT_ID: stub
-      REGION: stub
-      GLOBAL_S3_BUCKET: stub
-    volumes:
-      - ./volumes/storage:/var/lib/storage
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/status"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  meta:
-    container_name: supabase-meta
-    image: supabase/postgres-meta:v0.84.2
+  # Backend (Node.js/Express)
+  server:
+    build:
+      context: ./server
+      dockerfile: ../Dockerfile.server
+    container_name: moonlight-server
     restart: always
     environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: db
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
-
-  studio:
-    container_name: supabase-studio
-    image: supabase/studio:latest
-    restart: always
-    environment:
-      STUDIO_PG_META_URL: http://meta:8080
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      SUPABASE_URL: http://kong:8000
-      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DATABASE_URL: postgres://postgres:postgrespassword@db:5432/moonlight
+      JWT_SECRET: supersecretkeychangeinproduction
+      PORT: 3000
     ports:
       - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - moonlight-network
+
+  # Frontend (Vite/React)
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: moonlight-app
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    networks:
+      - moonlight-network
+
+networks:
+  moonlight-network:
+    driver: bridge
 
 volumes:
-  db-data:
+  db_data:

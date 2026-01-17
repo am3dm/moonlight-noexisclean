@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,16 +18,17 @@ import { Badge } from '@/components/ui/badge';
 import { Users as UsersIcon, Shield, ShoppingCart, Calculator, Package, Plus, Lock, Trash2, Edit, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Permission, User } from '@/types';
-import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '@/hooks/useDatabase';
 
-const roleLabels = {
+const roleLabels: any = {
   admin: 'مدير',
   sales: 'مبيعات',
   accountant: 'محاسب',
   warehouse: 'مستودع',
 };
 
-const roleIcons = {
+const roleIcons: any = {
   admin: Shield,
   sales: ShoppingCart,
   accountant: Calculator,
@@ -46,15 +47,19 @@ const permissionsList: { id: Permission; label: string }[] = [
 ];
 
 export const Users = () => {
-  const { users, addUser, updateUser, deleteUser, currentUser } = useStore();
+  const { user: currentUser } = useAuth();
+  const { data: users, isLoading: isLoadingUsers } = useUsers();
+  const { mutate: createUser, isPending: isCreating } = useCreateUser();
+  const { mutate: updateUser, isPending: isUpdating } = useUpdateUser();
+  const { mutate: deleteUser } = useDeleteUser();
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [passwordForm, setPasswordForm] = useState({ userId: '', newPassword: '' });
-  const [isLoading, setIsLoading] = useState(false);
 
   // Form State
-  const [formData, setFormData] = useState<Partial<User> & { email?: string; password?: string }>({
+  const [formData, setFormData] = useState<Partial<User> & { email?: string; password?: string; permissions?: Permission[] }>({
     username: '',
     email: '',
     fullName: '',
@@ -64,12 +69,13 @@ export const Users = () => {
     password: ''
   });
 
-  const handleOpenModal = (user?: User) => {
+  const handleOpenModal = (user?: any) => {
     if (user) {
       setEditingUser(user);
       setFormData({ 
         ...user,
-        email: user.username.includes('@') ? user.username : '', // Best guess for email if stored in username
+        fullName: user.full_name, // Map snake_case to camelCase
+        email: user.email, 
         password: '' // Don't show old password
       });
     } else {
@@ -88,7 +94,7 @@ export const Users = () => {
   };
 
   const handleSaveUser = async () => {
-    if (!formData.email && !editingUser) {
+    if (!formData.email) {
       toast.error('البريد الإلكتروني مطلوب');
       return;
     }
@@ -97,58 +103,32 @@ export const Users = () => {
       return;
     }
 
-    setIsLoading(true);
-
-    try {
-      if (editingUser) {
-        // Update Existing User via RPC
-        const { error } = await supabase.rpc('update_user_details', {
-          target_user_id: editingUser.id,
-          new_full_name: formData.fullName,
-          new_role: formData.role,
-          new_permissions: formData.permissions,
-          new_is_active: formData.isActive,
-          new_password: formData.password || null // Update password if provided
+    if (editingUser) {
+        updateUser({
+          id: editingUser.id,
+          full_name: formData.fullName,
+          role: formData.role,
+          is_active: formData.isActive,
+          email: formData.email,
+          password: formData.password || undefined // Only send if set
+        }, {
+          onSuccess: () => setIsModalOpen(false)
         });
-
-        if (error) throw error;
-        
-        // Update Local Store
-        updateUser(editingUser.id, formData);
-        toast.success('تم تحديث بيانات المستخدم بنجاح');
-      } else {
-        // Create New User via RPC
+    } else {
         if (!formData.password || formData.password.length < 6) {
             toast.error('كلمة المرور مطلوبة ويجب أن تكون 6 أحرف على الأقل');
-            setIsLoading(false);
             return;
         }
 
-        const { data: newUserId, error } = await supabase.rpc('create_new_user', {
+        createUser({
           email: formData.email,
           password: formData.password,
           full_name: formData.fullName,
           role: formData.role,
-          permissions: formData.permissions || []
+          is_active: formData.isActive
+        }, {
+          onSuccess: () => setIsModalOpen(false)
         });
-
-        if (error) throw error;
-
-        // Add to local store
-        addUser({ 
-            id: newUserId,
-            username: formData.email!.split('@')[0], 
-            ...formData as any 
-        }); 
-        
-        toast.success('تم إنشاء المستخدم بنجاح');
-      }
-      setIsModalOpen(false);
-    } catch (error: any) {
-      console.error(error);
-      toast.error('حدث خطأ: ' + (error.message || 'فشلت العملية'));
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -158,25 +138,19 @@ export const Users = () => {
       return;
     }
     
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.rpc('update_user_details', {
-        target_user_id: passwordForm.userId,
-        new_password: passwordForm.newPassword
-      });
-
-      if (error) throw error;
-
-      toast.success('تم تغيير كلمة المرور بنجاح');
-      setIsPasswordModalOpen(false);
-      setPasswordForm({ userId: '', newPassword: '' });
-    } catch (error: any) {
-      toast.error('حدث خطأ: ' + error.message);
-    } finally {
-      setIsLoading(false);
-    }
+    // We reuse updateUser for password reset
+    updateUser({
+      id: passwordForm.userId,
+      password: passwordForm.newPassword
+    }, {
+      onSuccess: () => {
+        setIsPasswordModalOpen(false);
+        setPasswordForm({ userId: '', newPassword: '' });
+      }
+    });
   };
 
+  // Permissions are not yet implemented fully in backend schema (just role based for now), but UI kept for future
   const togglePermission = (perm: Permission) => {
     const currentPerms = formData.permissions || [];
     if (currentPerms.includes(perm)) {
@@ -186,7 +160,7 @@ export const Users = () => {
     }
   };
 
-  if (currentUser?.role !== 'admin') {
+  if (!currentUser || currentUser.role !== 'admin') {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground text-lg">ليس لديك صلاحية للوصول إلى هذه الصفحة</p>
@@ -215,21 +189,24 @@ export const Users = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>المستخدم</TableHead>
+                <TableHead>البريد الإلكتروني</TableHead>
                 <TableHead>الاسم الكامل</TableHead>
                 <TableHead>الدور</TableHead>
-                <TableHead>الصلاحيات</TableHead>
                 <TableHead>الحالة</TableHead>
                 <TableHead>الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => {
+              {isLoadingUsers ? (
+                 <TableRow>
+                    <TableCell colSpan={5} className="text-center py-4">جاري التحميل...</TableCell>
+                 </TableRow>
+              ) : users?.map((user: any) => {
                 const Icon = roleIcons[user.role] || Shield;
                 return (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.username || user.email || 'User'}</TableCell>
-                    <TableCell>{user.fullName}</TableCell>
+                    <TableCell className="font-medium">{user.email}</TableCell>
+                    <TableCell>{user.full_name}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Icon className="h-4 w-4 text-muted-foreground" />
@@ -237,11 +214,8 @@ export const Users = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{user.permissions?.length || 0} صلاحيات</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.isActive ? 'default' : 'secondary'}>
-                        {user.isActive ? 'نشط' : 'معطل'}
+                      <Badge variant={user.is_active ? 'default' : 'secondary'}>
+                        {user.is_active ? 'نشط' : 'معطل'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -295,7 +269,6 @@ export const Users = () => {
                   type="email"
                   value={formData.email} 
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  disabled={!!editingUser} // Can't change email easily
                   placeholder="user@example.com"
                 />
               </div>
@@ -338,27 +311,6 @@ export const Users = () => {
               </Select>
             </div>
 
-            <div className="space-y-3">
-              <Label>الصلاحيات المخصصة</Label>
-              <div className="grid grid-cols-2 gap-3 p-4 border rounded-lg bg-muted/20">
-                {permissionsList.map((perm) => (
-                  <div key={perm.id} className="flex items-center space-x-2 space-x-reverse">
-                    <Checkbox 
-                      id={perm.id} 
-                      checked={formData.permissions?.includes(perm.id)}
-                      onCheckedChange={() => togglePermission(perm.id)}
-                    />
-                    <label
-                      htmlFor={perm.id}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                    >
-                      {perm.label}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <div className="flex items-center space-x-2 space-x-reverse">
               <Checkbox 
                 id="isActive" 
@@ -368,8 +320,8 @@ export const Users = () => {
               <label htmlFor="isActive">حساب نشط</label>
             </div>
 
-            <Button onClick={handleSaveUser} className="w-full" disabled={isLoading}>
-              {isLoading ? <Loader2 className="animate-spin" /> : 'حفظ البيانات'}
+            <Button onClick={handleSaveUser} className="w-full" disabled={isCreating || isUpdating}>
+              {isCreating || isUpdating ? <Loader2 className="animate-spin" /> : 'حفظ البيانات'}
             </Button>
           </div>
         </DialogContent>
@@ -390,8 +342,8 @@ export const Users = () => {
                 onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
               />
             </div>
-            <Button onClick={handleResetPassword} className="w-full" disabled={isLoading}>
-              {isLoading ? <Loader2 className="animate-spin" /> : 'تحديث كلمة المرور'}
+            <Button onClick={handleResetPassword} className="w-full" disabled={isUpdating}>
+              {isUpdating ? <Loader2 className="animate-spin" /> : 'تحديث كلمة المرور'}
             </Button>
           </div>
         </DialogContent>

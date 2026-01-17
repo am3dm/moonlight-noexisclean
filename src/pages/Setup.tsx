@@ -5,16 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useStore } from '@/store/useStore';
 import { useAuth } from '@/hooks/useAuth';
+import { useUpdateStoreSettings } from '@/hooks/useDatabase';
 
 export default function Setup() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { updateSettings } = useStore();
-  const [loading, setLoading] = useState(false);
+  const { mutate: saveSettings, isPending: loading } = useUpdateStoreSettings();
   const [errors, setErrors] = useState<Record<string, string>>({});
   
   const [formData, setFormData] = useState({
@@ -49,49 +49,24 @@ export default function Setup() {
     e.preventDefault();
     if (!validate()) return;
     
-    setLoading(true);
-
-    try {
-      // Upsert store settings
-      // We assume there's only one row for settings generally, or per tenant logic
-      // Check if row exists
-      const { data: existing } = await supabase.from('store_settings').select('id').limit(1).maybeSingle();
-
-      if (existing) {
-         await supabase.from('store_settings').update({
-             store_name: formData.storeName,
-             store_phone: formData.storePhone,
-             store_address: formData.storeAddress,
-             store_email: formData.storeEmail || null,
-             is_setup_completed: true
-         }).eq('id', existing.id);
-      } else {
-         await supabase.from('store_settings').insert([{
-             store_name: formData.storeName,
-             store_phone: formData.storePhone,
-             store_address: formData.storeAddress,
-             store_email: formData.storeEmail || null,
-             is_setup_completed: true
-         }]);
+    saveSettings({
+      store_name: formData.storeName,
+      store_phone: formData.storePhone,
+      store_address: formData.storeAddress,
+      store_email: formData.storeEmail,
+      is_setup_completed: true
+    }, {
+      onSuccess: () => {
+        // Update local store immediately for UX
+        updateSettings({
+            storeName: formData.storeName,
+            storePhone: formData.storePhone,
+            storeAddress: formData.storeAddress,
+            storeEmail: formData.storeEmail
+        });
+        window.location.href = '/'; 
       }
-
-      // Update local store immediately for UX
-      updateSettings({
-          storeName: formData.storeName,
-          storePhone: formData.storePhone,
-          storeAddress: formData.storeAddress,
-          storeEmail: formData.storeEmail
-      });
-
-      toast.success('تم حفظ إعدادات المتجر بنجاح!');
-      // Force reload or navigate to root which will now see setup as completed
-      window.location.href = '/'; 
-    } catch (error: any) {
-      console.error('Setup error:', error);
-      toast.error(error.message || 'حدث خطأ أثناء حفظ الإعدادات');
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   return (
@@ -104,7 +79,7 @@ export default function Setup() {
           <div>
             <CardTitle className="text-2xl font-bold">إعداد بيانات المتجر</CardTitle>
             <CardDescription>
-              مرحباً بك {user?.email || 'يا مدير'}! يرجى إكمال معلومات المتجر للبدء.
+              مرحباً بك {user?.name || 'يا مدير'}! يرجى إكمال معلومات المتجر للبدء.
             </CardDescription>
           </div>
         </CardHeader>

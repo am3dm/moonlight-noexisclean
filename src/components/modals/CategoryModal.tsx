@@ -1,25 +1,27 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-import { useStore } from '@/store/useStore';
+import { X, Palette, Loader2 } from 'lucide-react';
+import { useCreateCategory, useUpdateCategory } from '@/hooks/useDatabase';
 import { Category } from '@/types';
 
 interface CategoryModalProps {
-  category: Category | null;
+  category: any | null;
   onClose: () => void;
 }
 
-const colorOptions = [
-  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-  '#EC4899', '#06B6D4', '#F97316', '#6366F1', '#14B8A6',
+const colors = [
+  '#3B82F6', '#EF4444', '#10B981', '#F59E0B', 
+  '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'
 ];
 
 export const CategoryModal = ({ category, onClose }: CategoryModalProps) => {
-  const { addCategory, updateCategory } = useStore();
+  const { mutate: addCategory, isPending: isAdding } = useCreateCategory();
+  const { mutate: updateCategory, isPending: isUpdating } = useUpdateCategory();
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     color: '#3B82F6',
-    isActive: true,
+    icon: 'Tag'
   });
 
   useEffect(() => {
@@ -27,23 +29,22 @@ export const CategoryModal = ({ category, onClose }: CategoryModalProps) => {
       setFormData({
         name: category.name,
         description: category.description || '',
-        color: category.color,
-        isActive: category.isActive,
+        color: category.color || '#3B82F6',
+        icon: category.icon || 'Tag'
       });
     }
   }, [category]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (category) {
-      updateCategory(category.id, formData);
+      updateCategory({ id: category.id, ...formData }, { onSuccess: onClose });
     } else {
-      addCategory(formData);
+      addCategory(formData, { onSuccess: onClose });
     }
-    
-    onClose();
   };
+
+  const isLoading = isAdding || isUpdating;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -53,7 +54,7 @@ export const CategoryModal = ({ category, onClose }: CategoryModalProps) => {
       >
         <div className="flex items-center justify-between p-6 border-b border-border">
           <h2 className="text-xl font-semibold">
-            {category ? 'تعديل تصنيف' : 'إضافة تصنيف جديد'}
+            {category ? 'تعديل التصنيف' : 'إضافة تصنيف جديد'}
           </h2>
           <button onClick={onClose} className="btn-ghost p-2">
             <X size={20} />
@@ -69,7 +70,7 @@ export const CategoryModal = ({ category, onClose }: CategoryModalProps) => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="input-field"
-              placeholder="أدخل اسم التصنيف"
+              placeholder="مثال: إلكترونيات"
             />
           </div>
 
@@ -79,43 +80,37 @@ export const CategoryModal = ({ category, onClose }: CategoryModalProps) => {
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="input-field min-h-[80px]"
-              placeholder="وصف التصنيف (اختياري)"
+              placeholder="وصف مختصر للتصنيف..."
             />
           </div>
 
+          {/* Color Picker (Frontend Only feature for now unless schema updated) */}
+          {/* Note: Schema doesn't have color yet, but we can send it and backend will ignore or we can add it to schema later. 
+              The hook uses partial<Category> so it might pass through but be ignored by SQL insert if column missing. 
+              Let's keep it in UI. */}
           <div>
-            <label className="block text-sm font-medium mb-2">اللون</label>
+            <label className="block text-sm font-medium mb-2">لون التمييز</label>
             <div className="flex flex-wrap gap-2">
-              {colorOptions.map((color) => (
+              {colors.map((c) => (
                 <button
-                  key={color}
+                  key={c}
                   type="button"
-                  onClick={() => setFormData({ ...formData, color })}
-                  className={`w-8 h-8 rounded-lg transition-all ${
-                    formData.color === color ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''
+                  onClick={() => setFormData({ ...formData, color: c })}
+                  className={`w-8 h-8 rounded-full transition-transform hover:scale-110 ${
+                    formData.color === c ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''
                   }`}
-                  style={{ backgroundColor: color }}
+                  style={{ backgroundColor: c }}
                 />
               ))}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="isActive"
-              checked={formData.isActive}
-              onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-              className="w-4 h-4 rounded"
-            />
-            <label htmlFor="isActive" className="text-sm">تصنيف نشط</label>
-          </div>
-
           <div className="flex gap-3 pt-4">
-            <button type="submit" className="btn-primary flex-1">
+            <button type="submit" disabled={isLoading} className="btn-primary flex-1">
+              {isLoading && <Loader2 className="animate-spin ml-2" size={16} />}
               {category ? 'حفظ التغييرات' : 'إضافة التصنيف'}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary">
+            <button type="button" disabled={isLoading} onClick={onClose} className="btn-secondary">
               إلغاء
             </button>
           </div>

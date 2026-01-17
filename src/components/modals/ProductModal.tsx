@@ -1,28 +1,32 @@
 import { useState, useEffect } from 'react';
-import { X, ScanBarcode } from 'lucide-react';
+import { X, ScanBarcode, Loader2 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { Product } from '@/types';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { toast } from 'sonner';
+import { useCreateProduct, useUpdateProduct, useCategories } from '@/hooks/useDatabase';
 
 interface ProductModalProps {
-  product: Product | null;
+  product: any | null; // Adapting to DB type
   onClose: () => void;
 }
 
 export const ProductModal = ({ product, onClose }: ProductModalProps) => {
-  const { categories, addProduct, updateProduct } = useStore();
+  const { data: categories } = useCategories();
+  const { mutate: addProduct, isPending: isAdding } = useCreateProduct();
+  const { mutate: updateProduct, isPending: isUpdating } = useUpdateProduct();
+  
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    sku: '',
+    sku: '', // DB doesn't have SKU, I'll map it to nothing or description? Wait, barcode is there.
     barcode: '',
     categoryId: '',
     price: 0,
     cost: 0,
     quantity: 0,
     minQuantity: 0,
-    unit: 'قطعة',
+    unit: 'قطعة', // DB doesn't have unit? I should check schema.
     isActive: true,
   });
 
@@ -39,15 +43,15 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
       setFormData({
         name: product.name,
         description: product.description || '',
-        sku: product.sku,
+        sku: product.sku || '', // Use SKU if exists in obj, otherwise empty
         barcode: product.barcode || '',
-        categoryId: product.categoryId,
-        price: product.price,
-        cost: product.cost,
-        quantity: product.quantity,
-        minQuantity: product.minQuantity,
-        unit: product.unit,
-        isActive: product.isActive,
+        categoryId: product.category_id || '',
+        price: parseFloat(product.price) || 0,
+        cost: parseFloat(product.cost_price) || 0,
+        quantity: product.stock_quantity || 0,
+        minQuantity: product.min_stock_level || 0,
+        unit: 'قطعة', // Default
+        isActive: product.is_active,
       });
     }
   }, [product]);
@@ -55,14 +59,32 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Map form data to DB schema
+    const productData = {
+        name: formData.name,
+        description: formData.description,
+        barcode: formData.barcode,
+        price: formData.price,
+        cost_price: formData.cost,
+        stock_quantity: formData.quantity,
+        min_stock_level: formData.minQuantity,
+        category_id: formData.categoryId || null,
+        is_active: formData.isActive
+        // SKU and Unit are not in simple schema, ignored for now
+    };
+
     if (product) {
-      updateProduct(product.id, formData);
+      updateProduct({ id: product.id, ...productData }, {
+          onSuccess: onClose
+      });
     } else {
-      addProduct(formData);
+      addProduct(productData, {
+          onSuccess: onClose
+      });
     }
-    
-    onClose();
   };
+
+  const isLoading = isAdding || isUpdating;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -94,19 +116,7 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">رمز المنتج (SKU) *</label>
-              <input
-                type="text"
-                required
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="input-field"
-                placeholder="PROD001"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">الباركود</label>
+              <label className="block text-sm font-medium mb-2">باركود</label>
               <div className="relative">
                 <input
                     type="text"
@@ -124,13 +134,12 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
             <div className="col-span-2">
               <label className="block text-sm font-medium mb-2">التصنيف *</label>
               <select
-                required
                 value={formData.categoryId}
                 onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
                 className="input-field"
               >
                 <option value="">اختر التصنيف</option>
-                {categories.map((cat) => (
+                {categories?.map((cat: any) => (
                   <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
               </select>
@@ -163,7 +172,7 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">الكمية *</label>
+              <label className="block text-sm font-medium mb-2">الكمية الحالية *</label>
               <input
                 type="number"
                 required
@@ -175,7 +184,7 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">الحد الأدنى</label>
+              <label className="block text-sm font-medium mb-2">حد الطلب (Minimum)</label>
               <input
                 type="number"
                 min="0"
@@ -183,22 +192,6 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
                 onChange={(e) => setFormData({ ...formData, minQuantity: parseInt(e.target.value) })}
                 className="input-field"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">وحدة القياس</label>
-              <select
-                value={formData.unit}
-                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                className="input-field"
-              >
-                <option value="قطعة">قطعة</option>
-                <option value="كيلو">كيلو</option>
-                <option value="لتر">لتر</option>
-                <option value="متر">متر</option>
-                <option value="علبة">علبة</option>
-                <option value="كرتون">كرتون</option>
-              </select>
             </div>
 
             <div className="flex items-center gap-2">
@@ -224,10 +217,11 @@ export const ProductModal = ({ product, onClose }: ProductModalProps) => {
           </div>
 
           <div className="flex gap-3 pt-4">
-            <button type="submit" className="btn-primary flex-1">
+            <button type="submit" disabled={isLoading} className="btn-primary flex-1">
+              {isLoading && <Loader2 className="animate-spin ml-2" size={16} />}
               {product ? 'حفظ التغييرات' : 'إضافة المنتج'}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary">
+            <button type="button" disabled={isLoading} onClick={onClose} className="btn-secondary">
               إلغاء
             </button>
           </div>

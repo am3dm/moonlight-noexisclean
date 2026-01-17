@@ -9,8 +9,8 @@ services:
     build: 
       context: .
       args:
-        # Pass variables to build time (Hardcoded IP for stability based on your request)
-        VITE_SUPABASE_URL: http://185.225.233.103:8000
+        # POINT TO NGINX PROXY /api instead of direct port 8000 to fix CORS
+        VITE_SUPABASE_URL: http://185.225.233.103/api
         VITE_SUPABASE_ANON_KEY: ${ANON_KEY}
     restart: unless-stopped
     ports:

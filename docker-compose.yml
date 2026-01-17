@@ -159,7 +159,8 @@ services:
 
   studio:
     container_name: supabase-studio
-    image: supabase/studio:20241202-a1607a7
+    # Updated to a more recent stable tag
+    image: supabase/studio:20240101-ce39606
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://meta:8080

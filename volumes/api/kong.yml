@@ -33,6 +33,7 @@ services:
             - x-client-info
             - prefer
             - content-profile
+            - accept-profile # Add this line
             - range
           exposed_headers:
             - Content-Range

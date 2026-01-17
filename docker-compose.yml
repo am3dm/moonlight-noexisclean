@@ -9,7 +9,7 @@ services:
     build: 
       context: .
       args:
-        # POINT TO NGINX PROXY /api instead of direct port 8000 to fix CORS
+        # POINT TO NGINX PROXY /api
         VITE_SUPABASE_URL: http://185.225.233.103/api
         VITE_SUPABASE_ANON_KEY: ${ANON_KEY}
     restart: unless-stopped
@@ -25,7 +25,7 @@ services:
   db:
     container_name: supabase-db
     image: supabase/postgres:15.1.0.147
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 5s
@@ -49,7 +49,7 @@ services:
   kong:
     container_name: supabase-kong
     image: kong:2.8.1
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:8000"
       - "8443:8443"
@@ -66,7 +66,7 @@ services:
   auth:
     container_name: supabase-auth
     image: supabase/gotrue:v2.158.1
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
@@ -92,12 +92,13 @@ services:
   rest:
     container_name: supabase-rest
     image: postgrest/postgrest:v12.2.0
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      # Connect as postgres superuser to avoid auth role issues initially
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET}
@@ -106,7 +107,7 @@ services:
   realtime:
     container_name: supabase-realtime
     image: supabase/realtime:v2.30.23
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
@@ -128,7 +129,7 @@ services:
   storage:
     container_name: supabase-storage
     image: supabase/storage-api:v1.11.13
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
@@ -155,7 +156,7 @@ services:
   meta:
     container_name: supabase-meta
     image: supabase/postgres-meta:v0.84.2
-    restart: unless-stopped
+    restart: always
     environment:
       PG_META_PORT: 8080
       PG_META_DB_HOST: db
@@ -164,7 +165,7 @@ services:
   studio:
     container_name: supabase-studio
     image: supabase/studio:latest
-    restart: unless-stopped
+    restart: always
     environment:
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

@@ -43,8 +43,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - ./volumes/db/data:/var/lib/postgresql/data
-      # We don't mount migrations here directly because we want controlled execution order via 'migrator' service below
-      # or manual copy if needed. But for simple setup:
+      # Mount migrations to run automatically on init
       - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations 
 
   kong:
@@ -147,6 +146,12 @@ services:
       GLOBAL_S3_BUCKET: stub
     volumes:
       - ./volumes/storage:/var/lib/storage
+    # Healthcheck to restart if fails initially
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   meta:
     container_name: supabase-meta
@@ -159,7 +164,6 @@ services:
 
   studio:
     container_name: supabase-studio
-    # Trying latest as fallback
     image: supabase/studio:latest
     restart: unless-stopped
     environment:

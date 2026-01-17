@@ -159,8 +159,8 @@ services:
 
   studio:
     container_name: supabase-studio
-    # Changed to a known working tag for self-hosting
-    image: supabase/studio:20250113-1082662
+    # Very stable version
+    image: supabase/studio:20240729-ce4e892
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://meta:8080

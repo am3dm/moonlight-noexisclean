@@ -159,8 +159,8 @@ services:
 
   studio:
     container_name: supabase-studio
-    # Very stable version
-    image: supabase/studio:20240729-ce4e892
+    # Trying latest as fallback
+    image: supabase/studio:latest
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://meta:8080

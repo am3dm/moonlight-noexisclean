@@ -44,7 +44,6 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - ./volumes/db/data:/var/lib/postgresql/data
-      # Correct mount path: put files directly in initdb.d to execute
       - ./supabase/migrations:/docker-entrypoint-initdb.d 
 
   kong:
@@ -76,7 +75,8 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}/auth/v1
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      # Use postgres user directly to fix connection issues
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_JWT_EXP: 3600

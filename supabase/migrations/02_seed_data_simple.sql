@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS public.store_settings (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   store_name text default 'My Store',
   store_phone text,
   store_email text,

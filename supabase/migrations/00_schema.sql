@@ -1,5 +1,4 @@
 -- Final Production Schema
-create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
 drop type if exists public.user_role cascade;
@@ -12,7 +11,7 @@ drop type if exists public.invoice_status cascade;
 create type public.invoice_status as enum ('pending', 'completed', 'cancelled');
 
 create table if not exists public.categories (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   description text,
   color text,
@@ -20,7 +19,7 @@ create table if not exists public.categories (
   created_at timestamptz default now()
 );
 create table if not exists public.products (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   description text,
   sku text unique,
@@ -38,7 +37,7 @@ create table if not exists public.products (
   updated_at timestamptz default now()
 );
 create table if not exists public.customers (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   phone text,
   email text,
@@ -50,7 +49,7 @@ create table if not exists public.customers (
   updated_at timestamptz default now()
 );
 create table if not exists public.suppliers (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   phone text,
   email text,
@@ -61,7 +60,7 @@ create table if not exists public.suppliers (
   updated_at timestamptz default now()
 );
 create table if not exists public.invoices (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   invoice_number text not null unique,
   type public.invoice_type not null default 'sale',
   customer_id uuid references public.customers(id) on delete set null,
@@ -79,7 +78,7 @@ create table if not exists public.invoices (
   created_at timestamptz default now()
 );
 create table if not exists public.invoice_items (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   invoice_id uuid references public.invoices(id) on delete cascade,
   product_id uuid references public.products(id) on delete set null,
   product_name text not null,
@@ -89,7 +88,7 @@ create table if not exists public.invoice_items (
   total numeric(15,2) not null default 0
 );
 create table if not exists public.payments (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   invoice_id text,
   customer_id uuid references public.customers(id) on delete set null,
   supplier_id uuid references public.suppliers(id) on delete set null,
@@ -100,7 +99,7 @@ create table if not exists public.payments (
   created_at timestamptz default now()
 );
 create table if not exists public.notifications (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid,
   title text not null,
   message text not null,
@@ -109,7 +108,7 @@ create table if not exists public.notifications (
   created_at timestamptz default now()
 );
 create table if not exists public.store_settings (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   store_name text default 'My Store',
   store_phone text,
   store_email text,
